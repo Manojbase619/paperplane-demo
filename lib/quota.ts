@@ -18,8 +18,16 @@ export type QuotaResult =
       allowed: false;
       usage: DailyUsage;
       remainingCalls: 0;
+      remainingSeconds: number;
+      reason: "call_count";
+      message: string;
+    }
+  | {
+      allowed: false;
+      usage: DailyUsage;
+      remainingCalls: number;
       remainingSeconds: 0;
-      reason: "call_count" | "duration";
+      reason: "duration";
       message: string;
     };
 
