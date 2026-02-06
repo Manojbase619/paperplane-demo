@@ -22,7 +22,8 @@ export function VoiceReactiveVisual({
   const streamRef = useRef<MediaStream | null>(null);
   const contextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
-  const dataRef = useRef<Uint8Array | null>(null);
+  const dataRef = useRef<Uint8Array>(new Uint8Array(0));
+
 
   useEffect(() => {
     if (!active || typeof window === "undefined") {
