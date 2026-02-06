@@ -127,7 +127,8 @@ export default function AdminPage() {
                 </thead>
                 <tbody>
                   {stats?.usage.map((u) => (
-                    <tr key={`${u.phone}-${u.date}`} className="border-b border-white/[0.04]">
+                    <tr key={u.phone} className="border-b border-white/[0.04]">
+
                       <td className="py-2 pr-4 text-white/80">{u.phone}</td>
                       <td className="py-2 pr-4">{u.callsCount}</td>
                       <td className="py-2 pr-4">
