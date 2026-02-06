@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-
 import { getSessionsForExport, normalizeAdminPhone } from "@/lib/analytics";
 
 const ADMIN_PHONES = ["9655071573", "9886975211"];
@@ -9,8 +8,8 @@ function toCsvValue(value: unknown): string {
     value === null || value === undefined
       ? ""
       : typeof value === "string"
-        ? value
-        : String(value);
+      ? value
+      : String(value);
   const escaped = s.replace(/"/g, '""');
   return `"${escaped}"`;
 }
@@ -44,9 +43,6 @@ export async function GET(req: Request) {
     const toStr = searchParams.get("to");
     if (fromStr) from = new Date(fromStr);
     if (toStr) to = new Date(toStr);
-  } else {
-    from = undefined;
-    to = undefined;
   }
 
   const sessions = await getSessionsForExport({ from, to });
@@ -57,7 +53,6 @@ export async function GET(req: Request) {
     "end_time",
     "duration_seconds",
     "end_reason",
-    "date",
   ];
 
   const rows = sessions.map((s) => [
@@ -66,7 +61,6 @@ export async function GET(req: Request) {
     s.endTime ?? "",
     s.durationSeconds,
     s.endReason ?? "",
-    s.date,
   ]);
 
   const csv =
@@ -83,4 +77,3 @@ export async function GET(req: Request) {
     },
   });
 }
-
