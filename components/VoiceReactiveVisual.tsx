@@ -23,7 +23,7 @@ export function VoiceReactiveVisual({
   const contextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
 
-  // ✅ Always a concrete Uint8Array (never ArrayBufferLike)
+  // Always a real Uint8Array
   const dataRef = useRef<Uint8Array>(new Uint8Array(0));
 
   useEffect(() => {
@@ -69,10 +69,10 @@ export function VoiceReactiveVisual({
         function tick() {
           if (cancelled || !analyserRef.current) return;
 
-          // ✅ THE KEY FIX — narrow the type for TS
-          analyserRef.current.getByteFrequencyData(
-            dataRef.current as unknown as Uint8Array
-          );
+          // ✅ FINAL FIX — explicit generic match
+          const freqData =
+            dataRef.current as Uint8Array<ArrayBuffer>;
+          analyserRef.current.getByteFrequencyData(freqData);
 
           const sum = dataRef.current.reduce((a, b) => a + b, 0);
           const raw = Math.min(1, (sum / bufferLength / 255) * 2.8);
@@ -150,9 +150,7 @@ export function VoiceReactiveVisual({
             ease: "easeInOut",
           },
         }}
-      >
-        {/* visuals unchanged */}
-      </motion.div>
+      />
     </div>
   );
 }
