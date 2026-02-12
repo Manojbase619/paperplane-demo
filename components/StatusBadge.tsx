@@ -19,14 +19,14 @@ export function StatusBadge({ status }: { status: AgentStatus }) {
         "relative inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs",
         active
           ? "border-success/30 bg-success/10 text-success"
-          : "border-white/10 bg-white/[0.03] text-white/70"
+          : "border-[color:var(--border)] bg-[color:var(--surface-0)] text-[color:var(--text-muted)]"
       )}
     >
       <span className="relative flex h-2 w-2 items-center justify-center">
         <span
           className={cn(
             "h-1.5 w-1.5 rounded-full",
-            active ? "bg-success" : "bg-white/40"
+            active ? "bg-success" : "bg-[color:var(--text-muted)]"
           )}
         />
         <AnimatePresence>

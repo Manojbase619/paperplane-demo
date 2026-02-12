@@ -1,188 +1,164 @@
 /**
- * Ultravox Call Creation API with Memory Support
- *
- * This endpoint creates Ultravox calls with conversation context injection.
- * It implements a three-tier memory strategy:
- * - Tier 1: priorCallId for immediate reconnection (<1hr)
- * - Tier 2: Full transcript for recent calls (<24hrs)
- * - Tier 3: Summary + templateContext for older calls
+ * Ultravox Call Creation API
+ * Ultravox = Voice transport
+ * OpenAI (via webhook) = Brain
  */
 
 import { NextResponse } from "next/server";
-import { getSupabase } from "@/lib/database";
 import {
-  getUserByPhone,
   findOrCreateUser,
   getLastCallForUser,
   getCallSummary,
   updateUserLastCall,
   createCallRecord,
+  createRuntimeCallSession,
   formatMessagesForUltravox,
   createContextMessage,
+  getUserByPhone,
   ONE_HOUR,
   ONE_DAY,
 } from "@/lib/db-helpers";
+import { getStore } from "@/lib/store";
+import { getDateKey } from "@/lib/quota";
 
 const ULTRAVOX_API_KEY = process.env.ULTRAVOX_API_KEY;
 const ULTRAVOX_AGENT_ID = process.env.ULTRAVOX_AGENT_ID;
 
-export async function POST(req: Request) {
-  const supabase = getSupabase();
-
+/** GET: return last call for the given phone (for dashboard) */
+export async function GET(req: Request) {
   try {
-    // ============================================
-    // STEP 1: Extract and validate phone number
-    // ============================================
+    const { searchParams } = new URL(req.url);
+    const phone = searchParams.get("phone");
+    if (!phone?.trim()) {
+      return NextResponse.json({ lastCall: null }, { status: 200 });
+    }
+    const user = await getUserByPhone(phone.trim());
+    if (!user) {
+      return NextResponse.json({ lastCall: null }, { status: 200 });
+    }
+    const userId = (user as { id?: string; user_id?: string }).id ?? (user as { user_id?: string }).user_id;
+    if (!userId) {
+      return NextResponse.json({ lastCall: null }, { status: 200 });
+    }
+    const lastCall = await getLastCallForUser(userId);
+    if (!lastCall) {
+      return NextResponse.json({ lastCall: null }, { status: 200 });
+    }
+    return NextResponse.json({
+      lastCall: {
+        callId: lastCall.call_id,
+        startedAt: lastCall.started_at,
+        outcome: lastCall.outcome ?? undefined,
+      },
+    });
+  } catch (e) {
+    console.warn("GET /api/calls/create error:", e);
+    return NextResponse.json({ lastCall: null }, { status: 200 });
+  }
+}
+
+export async function POST(req: Request) {
+  try {
     const body = await req.json();
     const phoneNumber = body?.phoneNumber;
+    const prompt: string | undefined =
+      typeof body?.prompt === "string" ? body.prompt.trim() || undefined : undefined;
+    const agentId: string | undefined =
+      typeof body?.agentId === "string" ? body.agentId.trim() || undefined : undefined;
 
     if (!phoneNumber) {
       return NextResponse.json(
-        { ok: false, error: "Phone number required", errorCode: "PHONE_REQUIRED" },
+        { ok: false, error: "Phone number required" },
         { status: 400 }
       );
     }
 
-    // Normalize phone number (basic validation)
-    const normalizedPhone = phoneNumber.replace(/\D/g, "");
-    if (normalizedPhone.length < 10) {
-      return NextResponse.json(
-        { ok: false, error: "Invalid phone number", errorCode: "INVALID_PHONE" },
-        { status: 400 }
-      );
-    }
+    console.log("=================================");
+    console.log("📞 Call creation request:", phoneNumber);
+    if (prompt) console.log("📝 Custom prompt:", prompt.slice(0, 80) + (prompt.length > 80 ? "…" : ""));
+    console.log("Using Agent ID:", ULTRAVOX_AGENT_ID);
+    console.log("=================================");
 
-    console.log(`📞 Call creation request for phone: ${phoneNumber}`);
-
-    // ============================================
-    // STEP 2: Find or create user
-    // ============================================
+    // STEP 1 — Find or create user
     const user = await findOrCreateUser(phoneNumber);
 
     if (!user) {
       return NextResponse.json(
-        { ok: false, error: "Failed to create user", errorCode: "USER_CREATE_FAILED" },
+        { ok: false, error: "Failed to create user" },
         { status: 500 }
       );
     }
 
-    console.log(`👤 User: ${user.user_id} (${user.name || "No name"})`);
+    console.log(`👤 User: ${user.id}`);
 
-    // ============================================
-    // STEP 3: Get conversation context
-    // ============================================
-    const lastCall = await getLastCallForUser(user.user_id);
-    const recentSummary = lastCall ? await getCallSummary(lastCall.call_id) : null;
+    const lastCall = await getLastCallForUser(user.id);
+    const recentSummary = lastCall
+      ? await getCallSummary(lastCall.call_id)
+      : null;
 
-    // Calculate call age
-    const callAge = lastCall ? Date.now() - new Date(lastCall.started_at).getTime() : Infinity;
+    const callAge = lastCall
+      ? Date.now() - new Date(lastCall.started_at).getTime()
+      : Infinity;
 
-    console.log(`📋 Last call: ${lastCall?.call_id || "None"}, Age: ${Math.floor(callAge / ONE_HOUR)}h ago`);
-
-    // ============================================
-    // STEP 4: Build Ultravox request with context
-    // ============================================
+    // STEP 2 — Build Ultravox Request
     const ultravoxRequestBody: Record<string, any> = {
       recordingEnabled: true,
-      maxDuration: "1800s", // 30 minutes
+      maxDuration: "1800s",
+      initialOutputMedium: "MESSAGE_MEDIUM_VOICE",
       metadata: {
         phoneNumber,
-        userId: user.user_id,
-        hasHistory: !!lastCall,
+        userId: user.id,
+        hasHistory: lastCall ? "true" : "false",
+        source: "basethesis_voice",
+        ...(prompt && { agentPrompt: prompt }),
       },
     };
 
-    let hasInjectedContext = false;
-
-    // ============================================
-    // TIER 1: Use priorCallId for immediate reconnection
-    // ============================================
-    if (lastCall && callAge < ONE_HOUR) {
-      console.log("🔄 Tier 1: Using priorCallId for reconnection");
-
-      // Use Ultravox's priorCallId feature
-      const priorCallId = lastCall.call_id;
-
-      const response = await fetch(
-        `https://api.ultravox.ai/api/calls?priorCallId=${priorCallId}`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "X-API-Key": ULTRAVOX_API_KEY!,
-          },
-          body: JSON.stringify({
-            // Override what we need to change
-            metadata: ultravoxRequestBody.metadata,
-            recordingEnabled: ultravoxRequestBody.recordingEnabled,
-            maxDuration: ultravoxRequestBody.maxDuration,
-          }),
-        }
-      );
-
-      if (response.ok) {
-        const callData = await response.json();
-
-        // Store call record
-        await createCallRecord({
-          call_id: callData.callId,
-          user_id: user.user_id,
-          phone_number: phoneNumber,
-          source: "ultravox",
-          status: "active",
-          started_at: new Date().toISOString(),
-          metadata: { priorCallId, joinUrl: callData.joinUrl },
-        });
-
-        await updateUserLastCall(user.user_id);
-
-        console.log(`✅ Call created with priorCallId: ${callData.callId}`);
-
-        return NextResponse.json({
-          ok: true,
-          callId: callData.callId,
-          joinUrl: callData.joinUrl,
-          hasHistory: true,
-          contextType: "priorCallId",
-        });
-      } else {
-        console.error("priorCallId request failed, falling back to manual injection");
-      }
+    // Full prompt is stored in metadata and templateContext; webhook uses metadata.agentPrompt as the agent's system prompt (OpenAI brain).
+    // Ultravox StartAgentCallRequest does not accept "systemPrompt" — only templateContext, firstSpeakerSettings, metadata, etc.
+    if (prompt?.trim()) {
+      const fullPrompt = prompt.trim();
+      ultravoxRequestBody.templateContext = {
+        ...(ultravoxRequestBody.templateContext || {}),
+        agentPrompt: fullPrompt,
+        systemPrompt: fullPrompt,
+      };
+      // First thing the user hears: a short greeting derived from the prompt
+      const firstLine =
+        fullPrompt.split(/\n/).find((l) => l.trim().length > 10)?.trim() ||
+        "Hello! How can I help you today?";
+      ultravoxRequestBody.firstSpeakerSettings = {
+        agent: {
+          prompt:
+            firstLine.length > 200
+              ? firstLine.slice(0, 197) + "..."
+              : firstLine,
+        },
+      };
     }
 
-    // ============================================
-    // TIER 2: Full transcript for recent calls (<24hrs)
-    // ============================================
-    if (lastCall && callAge < ONE_DAY && lastCall.messages && lastCall.messages.length > 0) {
-      console.log("📝 Tier 2: Injecting full conversation history");
+    let hasInjectedContext = false;
+
+    // Inject full history (<24h)
+    if (
+      lastCall &&
+      callAge < ONE_DAY &&
+      lastCall.messages &&
+      lastCall.messages.length > 0
+    ) {
+      console.log("📝 Injecting full conversation history");
 
       ultravoxRequestBody.initialMessages = [
         ...formatMessagesForUltravox(lastCall.messages),
-        {
-          role: "MESSAGE_ROLE_AGENT",
-          text: "Welcome back! I see we were in the middle of planning your trip. Let's pick up where we left off.",
-        },
       ];
 
       hasInjectedContext = true;
     }
 
-    // ============================================
-    // TIER 3: Summary + templateContext for older calls
-    // ============================================
+    // Inject summary (>=24h)
     else if (recentSummary && callAge >= ONE_DAY) {
-      console.log("📊 Tier 3: Injecting summary and templateContext");
+      console.log("📊 Injecting summary context");
 
-      // Build templateContext with structured data
-      const summaryData = recentSummary.summary_data;
-      ultravoxRequestBody.templateContext = {
-        customerName: summaryData.userName || user.name || "there",
-        previousDestination: summaryData.cities?.[0]?.city || "",
-        bookingProgress: summaryData.bookingProgress || "in progress",
-        ...(summaryData.userPreferences || {}),
-      };
-
-      // Add synthetic context message
       ultravoxRequestBody.initialMessages = [
         {
           role: "MESSAGE_ROLE_USER",
@@ -193,20 +169,12 @@ export async function POST(req: Request) {
       hasInjectedContext = true;
     }
 
-    // ============================================
-    // TIER 4: New user (no history)
-    // ============================================
-    if (!lastCall) {
-      console.log("🆕 Tier 4: New user - no history injection");
+    console.log(
+      "Ultravox Request Body:",
+      JSON.stringify(ultravoxRequestBody, null, 2)
+    );
 
-      ultravoxRequestBody.templateContext = {
-        customerName: user.name || "there",
-      };
-    }
-
-    // ============================================
-    // STEP 5: Create Ultravox call via Agent API
-    // ============================================
+    // STEP 3 — Create Call
     const response = await fetch(
       `https://api.ultravox.ai/api/agents/${ULTRAVOX_AGENT_ID}/calls`,
       {
@@ -224,108 +192,77 @@ export async function POST(req: Request) {
       console.error("❌ Ultravox API error:", errorText);
 
       return NextResponse.json(
-        {
-          ok: false,
-          error: "Failed to create call",
-          errorCode: "ULTRAVOX_API_ERROR",
-          details: errorText,
-        },
+        { ok: false, error: "Failed to create call" },
         { status: 500 }
       );
     }
 
     const callData = await response.json();
 
-    // ============================================
-    // STEP 6: Store call record
-    // ============================================
+    const userIdForDb = (user as { id?: string; user_id?: string }).id ?? (user as { user_id?: string }).user_id;
+
     await createCallRecord({
       call_id: callData.callId,
-      user_id: user.user_id,
+      user_id: userIdForDb!,
       phone_number: phoneNumber,
       source: "ultravox",
       status: "active",
       started_at: new Date().toISOString(),
       metadata: {
         joinUrl: callData.joinUrl,
-        contextType: hasInjectedContext ? (callAge < ONE_DAY ? "full_history" : "summary") : "none",
+        contextType: hasInjectedContext
+          ? callAge < ONE_DAY
+            ? "full_history"
+            : "summary"
+          : "none",
+        ...(prompt && { agentPrompt: prompt }),
+        ...(agentId && { agentId }),
       },
     });
 
-    await updateUserLastCall(user.user_id);
+    // Runtime engine: link call → agent so webhook uses AgentSpec + memory
+    if (agentId) {
+      try {
+        await createRuntimeCallSession({
+          call_id: callData.callId,
+          agent_id: agentId,
+          user_id: userIdForDb ?? null,
+          state_json: {},
+        });
+        console.log(`🔗 Runtime session created for agent ${agentId}`);
+      } catch (runtimeErr) {
+        console.warn("Runtime call session create failed (non-fatal):", runtimeErr);
+      }
+    }
 
-    console.log(`✅ Call created: ${callData.callId} (context: ${hasInjectedContext ? "injected" : "none"})`);
+    // Create call_session and reserve daily usage so admin dashboard reflects live data
+    try {
+      const store = getStore();
+      const usageDate = getDateKey(new Date());
+      await store.createCallSession({
+        phone: phoneNumber,
+        startTime: new Date(),
+        metadata: { call_id: callData.callId },
+      });
+      await store.incrementDailyUsage(phoneNumber.replace(/\D/g, ""), usageDate, 1, 0);
+    } catch (storeErr) {
+      console.warn("Store session/usage update failed (non-fatal):", storeErr);
+    }
 
-    // ============================================
-    // STEP 7: Return response to frontend
-    // ============================================
+    await updateUserLastCall(userIdForDb!);
+
+    console.log(`✅ Call created: ${callData.callId}`);
+
     return NextResponse.json({
       ok: true,
       callId: callData.callId,
       joinUrl: callData.joinUrl,
-      hasHistory: hasInjectedContext,
-      contextType: hasInjectedContext ? (callAge < ONE_DAY ? "full_history" : "summary") : "none",
-      userName: user.name,
     });
-
   } catch (error) {
     console.error("❌ Call creation error:", error);
 
     return NextResponse.json(
-      {
-        ok: false,
-        error: "Internal server error",
-        errorCode: "INTERNAL_ERROR",
-        details: error instanceof Error ? error.message : "Unknown error",
-      },
-      { status: 500 }
-    );
-  }
-}
-
-// ============================================
-// GET endpoint: Check call history for a phone number
-// ============================================
-export async function GET(req: Request) {
-  try {
-    const { searchParams } = new URL(req.url);
-    const phoneNumber = searchParams.get("phone");
-
-    if (!phoneNumber) {
-      return NextResponse.json(
-        { error: "Phone number required" },
-        { status: 400 }
-      );
-    }
-
-    const user = await getUserByPhone(phoneNumber);
-
-    if (!user) {
-      return NextResponse.json({
-        hasHistory: false,
-        message: "No history found for this number",
-      });
-    }
-
-    const lastCall = await getLastCallForUser(user.user_id);
-
-    return NextResponse.json({
-      hasHistory: !!lastCall,
-      user: {
-        name: user.name,
-        lastCallAt: user.last_call_at,
-      },
-      lastCall: lastCall ? {
-        callId: lastCall.call_id,
-        startedAt: lastCall.started_at,
-        outcome: lastCall.outcome,
-      } : null,
-    });
-
-  } catch (error) {
-    console.error("Error checking history:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
+      { ok: false, error: "Internal server error" },
       { status: 500 }
     );
   }

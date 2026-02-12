@@ -69,6 +69,8 @@ export interface StoreAdapter {
     from?: Date;
     to?: Date;
   }): Promise<CallSession[]>;
+
+  getCallSessionByCallId(callId: string): Promise<CallSession | null>;
 }
 
 /* =======================
@@ -291,6 +293,26 @@ class SupabaseStore implements StoreAdapter {
       endReason: row.end_reason,
       usage_date: row.usage_date,
     }));
+  }
+
+  async getCallSessionByCallId(callId: string): Promise<CallSession | null> {
+    const { data, error } = await this.client
+      .from("call_sessions")
+      .select("*")
+      .eq("metadata->>call_id", callId)
+      .maybeSingle();
+
+    if (error || !data) return null;
+
+    return {
+      id: data.id,
+      phone: data.phone,
+      startTime: data.start_time,
+      endTime: data.end_time,
+      durationSeconds: data.duration_seconds ?? 0,
+      endReason: data.end_reason,
+      usage_date: data.usage_date,
+    };
   }
 }
 

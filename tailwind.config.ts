@@ -5,21 +5,20 @@ export default {
   theme: {
     extend: {
       colors: {
-        bg0: "#0B0B0E",
-        bg1: "#0F1115",
-        surface0: "#13151A",
-        surface1: "#16181D",
-        surface2: "#1C1F26",
-        accent: "#FF7A18",
-        "accent-strong": "#FF3D00",
-        textSoft: "#D0D1D6",
-        textMuted: "#888B94",
+        bg0: "#f5f5f7",
+        bg1: "#ffffff",
+        surface0: "#ececef",
+        surface1: "#f8f9fa",
+        surface2: "#ffffff",
+        accent: "#6C3EE8",
+        "accent-hover": "#5a32c4",
+        "accent-strong": "#5a32c4",
+        textSoft: "#1a1a1e",
+        textMuted: "#6b7280",
       },
       boxShadow: {
-        glow:
-          "0 0 0 1px rgba(255,122,24,.16), 0 28px 90px rgba(0,0,0,.9)",
-        glowActive:
-          "0 0 0 1px rgba(255,122,24,.22), 0 32px 110px rgba(0,0,0,1)",
+        glow: "0 0 0 1px rgba(108,62,232,.2), 0 24px 60px rgba(0,0,0,.12)",
+        glowActive: "0 0 0 1px rgba(108,62,232,.35), 0 32px 80px rgba(0,0,0,.18)",
       },
     },
   },

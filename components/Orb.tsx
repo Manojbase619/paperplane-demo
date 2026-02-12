@@ -18,8 +18,8 @@ export function Orb({
 
   const glow =
     speaking || listening
-      ? "0 0 0 1px rgba(0,245,212,.6), 0 0 40px rgba(0,245,212,.55), 0 0 120px rgba(255,46,99,.5)"
-      : "0 0 0 1px rgba(0,245,212,.2), 0 0 60px rgba(0,245,212,.24), 0 0 120px rgba(255,46,99,.18)";
+      ? "0 0 0 1px rgba(108,62,232,.5), 0 0 40px rgba(108,62,232,.4), 0 0 100px rgba(108,62,232,.25)"
+      : "0 0 0 1px rgba(108,62,232,.25), 0 0 60px rgba(108,62,232,.2), 0 0 100px rgba(108,62,232,.12)";
 
   return (
     <div className={cn("relative", className)}>
@@ -27,7 +27,7 @@ export function Orb({
         className="relative mx-auto aspect-square w-[240px] max-w-full rounded-full"
         style={{
           background:
-            "radial-gradient(circle at 30% 20%, rgba(255,255,255,.18), transparent 45%), radial-gradient(circle at 72% 68%, rgba(0,245,212,.3), transparent 55%), radial-gradient(circle at 50% 60%, rgba(5,7,22,1), rgba(3,4,16,1))",
+            "radial-gradient(circle at 30% 20%, rgba(255,255,255,.35), transparent 45%), radial-gradient(circle at 72% 68%, rgba(108,62,232,.25), transparent 55%), radial-gradient(circle at 50% 60%, rgba(248,249,250,1), rgba(236,236,239,1))",
           boxShadow: glow,
         }}
         initial={false}
@@ -47,7 +47,7 @@ export function Orb({
           className="absolute inset-0 rounded-full"
           style={{
             background:
-              "radial-gradient(circle at 50% 55%, rgba(0,245,212,.25), transparent 60%), radial-gradient(circle at 45% 40%, rgba(255,46,99,.18), transparent 55%)",
+              "radial-gradient(circle at 50% 55%, rgba(108,62,232,.2), transparent 60%), radial-gradient(circle at 45% 40%, rgba(108,62,232,.12), transparent 55%)",
           }}
           animate={{
             opacity: speaking ? [0.7, 1, 0.7] : listening ? [0.45, 0.8, 0.5] : [0.3, 0.5, 0.35],

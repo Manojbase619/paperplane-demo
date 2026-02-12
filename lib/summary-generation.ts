@@ -52,9 +52,14 @@ export interface UserPreferences {
 
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 
-async function callClaude(prompt: string, systemPrompt?: string, maxTokens: number = 1000) {
+async function callClaude(
+  prompt: string,
+  systemPrompt?: string,
+  maxTokens: number = 1000
+): Promise<string | null> {
   if (!ANTHROPIC_API_KEY) {
-    throw new Error("ANTHROPIC_API_KEY not set");
+    console.warn("ANTHROPIC_API_KEY not set; skipping Claude summary generation.");
+    return null;
   }
 
   const response = await fetch("https://api.anthropic.com/v1/messages", {
@@ -140,19 +145,22 @@ Rules:
 
   try {
     const response = await callClaude(prompt, undefined, 1500);
-
-    // Extract JSON from response (in case there's extra text)
+    if (response == null) {
+      return {
+        bookingProgress: "not_started",
+        cities: [],
+        travelers: 0,
+        specialRequests: [],
+      };
+    }
     const jsonMatch = response.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
       throw new Error("No JSON found in Claude response");
     }
-
     const summary = JSON.parse(jsonMatch[0]);
     return summary as BookingProgress;
   } catch (error) {
     console.error("Error generating booking summary:", error);
-
-    // Return empty summary on error
     return {
       bookingProgress: "not_started",
       cities: [],
@@ -197,12 +205,11 @@ Rules:
 
   try {
     const response = await callClaude(prompt);
-
+    if (response == null) return {};
     const jsonMatch = response.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
       throw new Error("No JSON found in Claude response");
     }
-
     const preferences = JSON.parse(jsonMatch[0]);
     return preferences as UserPreferences;
   } catch (error) {
@@ -238,7 +245,7 @@ Keep it factual and concise. No preamble, just the summary.
 
   try {
     const summary = await callClaude(prompt, "You are a travel planning assistant.", 200);
-    return summary.trim();
+    return summary != null ? summary.trim() : "Conversation summary unavailable.";
   } catch (error) {
     console.error("Error generating conversation summary:", error);
     return "Conversation summary unavailable.";
@@ -323,7 +330,7 @@ async function storeSummaryInDb(
 
   if (error) {
     console.error(`Error storing ${summaryType} summary:`, error);
-    throw error;
+    // Do not throw: missing table or schema issues should not break call.ended flow
   }
 }
 

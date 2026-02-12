@@ -7,9 +7,9 @@ import {
   UltravoxSessionStatus,
 } from "ultravox-client";
 
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { VoiceReactiveVisual } from "@/components/VoiceReactiveVisual";
-import { STORAGE_KEYS, safeGetLocalStorageItem } from "@/lib/storage";
-import { countries, type Country } from "@/lib/countries";
+import { getCurrentUser, getDisplayName } from "@/lib/storage";
 import { cn } from "@/lib/utils";
 
 type CallState = "idle" | "connecting" | "active" | "ended";
@@ -27,37 +27,58 @@ type TranscriptLike =
 
 export default function DashboardPage() {
   const router = useRouter();
+  const [user, setUser] = useState<ReturnType<typeof getCurrentUser>>(null);
   const [phone, setPhone] = useState<string | null>(null);
-  const [linkedCountry, setLinkedCountry] = useState<Country | null>(null);
   const [callState, setCallState] = useState<CallState>("idle");
   const [duration, setDuration] = useState(0);
   const [transcript, setTranscript] = useState<TranscriptLine[]>([]);
   const [permissionError, setPermissionError] = useState<string | null>(null);
+  const [lastCall, setLastCall] = useState<{
+    callId: string;
+    startedAt: string;
+    outcome?: string;
+  } | null>(null);
 
   const lineIndexRef = useRef(0);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const sessionRef = useRef<UltravoxSession | null>(null);
 
   useEffect(() => {
-    const storedPhone = safeGetLocalStorageItem(STORAGE_KEYS.phone);
-    const storedCountry = safeGetLocalStorageItem(STORAGE_KEYS.country);
-    if (!storedPhone) {
+    const u = getCurrentUser();
+    if (!u?.phone) {
       router.replace("/");
       return;
     }
-    const digits = storedPhone.replace(/\D/g, "");
-    const country = storedCountry
-      ? countries.find((c) => c.code === storedCountry) ?? null
-      : null;
-    const full =
-      digits.length === 10 && country
-        ? `${country.dialCode.replace(/\D/g, "")}${digits}`
-        : digits.length >= 10
-          ? digits
-          : storedPhone;
-    setPhone(full);
-    setLinkedCountry(country);
+    setUser(u);
+    setPhone(u.phone);
   }, [router]);
+
+  useEffect(() => {
+    if (!phone) return;
+    let cancelled = false;
+    async function fetchLastCall() {
+      try {
+        const res = await fetch(
+          `/api/calls/create?phone=${encodeURIComponent(phone!)}`,
+          { cache: "no-store" }
+        );
+        const json = await res.json().catch(() => null);
+        if (!cancelled && json?.lastCall)
+          setLastCall({
+            callId: json.lastCall.callId,
+            startedAt: json.lastCall.startedAt,
+            outcome: json.lastCall.outcome,
+          });
+        else if (!cancelled) setLastCall(null);
+      } catch {
+        if (!cancelled) setLastCall(null);
+      }
+    }
+    fetchLastCall();
+    return () => {
+      cancelled = true;
+    };
+  }, [phone, callState]);
 
   useEffect(() => {
     if (callState !== "active") return;
@@ -74,14 +95,11 @@ export default function DashboardPage() {
     el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
   }, [transcript.length]);
 
+  const displayName = getDisplayName(user);
   const formattedPhone = useMemo(() => {
     if (!phone) return "";
-    const digits = phone.replace(/\D/g, "");
-    if (digits.length < 10) return digits;
-    const local = digits.length > 10 ? digits.slice(-10) : digits;
-    const grouped = local.replace(/(\d{3})(\d{3})(\d+)/, "$1 $2 $3");
-    return linkedCountry ? `${linkedCountry.dialCode} ${grouped}` : grouped;
-  }, [phone, linkedCountry]);
+    return phone.replace(/\D/g, "").replace(/(\d{3})(\d{3})(\d+)/, "$1 $2 $3");
+  }, [phone]);
 
   function addTranscriptLine(speakerLabel: "You" | "Agent" | "Unknown", text: string, ts?: number) {
     const clean = String(text ?? "").trim();
@@ -186,14 +204,28 @@ export default function DashboardPage() {
       return;
     }
     try {
-      const res = await fetch("/api/ultravox/start", {
+      const pendingPrompt =
+        typeof sessionStorage !== "undefined"
+          ? sessionStorage.getItem("basethesis_voice_pending_prompt")
+          : null;
+      const body: { phoneNumber: string; prompt?: string } = {
+        phoneNumber: phone || "",
+      };
+      if (pendingPrompt?.trim()) {
+        body.prompt = pendingPrompt.trim();
+        sessionStorage.removeItem("basethesis_voice_pending_prompt");
+      }
+
+      const res = await fetch("/api/calls/create", {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
       });
 
       const json = await res.json().catch(() => null);
       if (!json?.ok || !json?.joinUrl) {
-        console.warn("Ultravox start failed, response:", res.status, json);
-        setPermissionError("Failed to start Ultravox call. Please check your Ultravox configuration.");
+        console.warn("Call create failed, response:", res.status, json);
+        setPermissionError(json?.error ?? "Failed to start call. Please check your configuration.");
         setCallState("idle");
         return;
       }
@@ -332,7 +364,7 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="relative min-h-dvh overflow-hidden text-[color:var(--text-soft)]">
+    <div className="relative min-h-dvh overflow-x-hidden bg-[color:var(--bg0)] text-[color:var(--text-soft)]">
       <video
         className="pointer-events-none fixed inset-0 h-full w-full object-cover opacity-35"
         autoPlay
@@ -342,29 +374,49 @@ export default function DashboardPage() {
       >
         <source src="/control-room-pan.mp4" type="video/mp4" />
       </video>
-      <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_0%_0%,rgba(0,0,0,0.85),transparent_55%),radial-gradient(circle_at_100%_0%,rgba(0,0,0,0.85),transparent_60%),linear-gradient(180deg,rgba(3,4,10,0.96),rgba(2,2,6,0.99))]" />
+      <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_0%_0%,rgba(108,62,232,0.08),transparent 55%),radial-gradient(circle_at_100%_0%,rgba(108,62,232,0.06),transparent 60%),linear-gradient(180deg,var(--bg0),var(--surface-1))]" />
 
-      <div className="relative mx-auto flex min-h-dvh max-w-6xl flex-col px-4 py-8 md:px-8 md:py-10">
-        <header className="mb-8 flex items-center justify-between gap-4">
-          <div>
-            <div className="text-xs uppercase tracking-[0.32em] text-[color:var(--text-muted)]">
-              Paperplane
+      <div className="relative mx-auto flex min-h-dvh max-w-6xl flex-col px-3 py-6 sm:px-4 sm:py-8 md:px-8 md:py-10">
+        <header className="mb-6 flex flex-wrap items-center justify-between gap-3 sm:mb-8">
+          <div className="min-w-0">
+            <div className="text-[10px] font-semibold uppercase tracking-[0.28em] text-[color:var(--accent)] sm:text-xs">
+              Basethesis
             </div>
-            <h1 className="mt-1 text-2xl text-[color:var(--text-soft)] md:text-3xl">
+            <h1 className="mt-0.5 truncate text-xl text-[color:var(--text-soft)] sm:mt-1 sm:text-2xl md:text-3xl">
               Voice Operations Deck
             </h1>
           </div>
-          {formattedPhone && (
-            <div className="rounded-full border border-white/10 bg-[color:var(--surface-0)]/85 px-4 py-1.5 text-xs text-[color:var(--text-muted)]">
-              Linked line{" "}
-              <span className="text-[color:var(--text-soft)]">{formattedPhone}</span>
-            </div>
-          )}
+          <div className="flex items-center gap-2 sm:gap-3">
+            <ThemeToggle size="sm" />
+            {displayName && (user?.firstName?.trim() || user?.lastName?.trim()) && (
+              <div className="rounded-full border border-[color:var(--border)] bg-[color:var(--surface-2)] px-4 py-1.5 text-xs text-[color:var(--text-muted)]">
+                <span className="text-[color:var(--text-soft)]">{displayName}</span>
+              </div>
+            )}
+            {phone && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => router.push("/console")}
+                  className="hidden items-center gap-2 rounded-full bg-[color:var(--accent)] px-3 py-1.5 text-[11px] font-medium uppercase tracking-[0.16em] text-white hover:opacity-90 md:flex"
+                >
+                  <span>Console</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => router.push("/admin")}
+                  className="hidden items-center gap-2 rounded-full border border-[color:var(--accent)] bg-[color:var(--surface-2)] px-3 py-1.5 text-[11px] font-medium uppercase tracking-[0.16em] text-[color:var(--accent)] hover:bg-[color:var(--accent)]/10 md:flex"
+                >
+                  <span>Command Center</span>
+                </button>
+              </>
+            )}
+          </div>
         </header>
 
         <main className="cinematic-section flex flex-1 flex-col">
           <section className="flex flex-1 flex-col items-center justify-center">
-            <div className="surface-card flex w-full max-w-2xl flex-col gap-6 px-6 py-8 md:px-8 md:py-10">
+            <div className="surface-card flex w-full max-w-2xl flex-col gap-5 px-4 py-6 sm:px-6 sm:py-8 md:gap-6 md:px-8 md:py-10">
               <div className="flex items-center justify-between gap-4">
                 <div>
                   <div className="text-xs uppercase tracking-[0.32em] text-[color:var(--text-muted)]">
@@ -392,20 +444,61 @@ export default function DashboardPage() {
                 <VoiceReactiveVisual active={callState === "active"} />
               </div>
 
-              <div className="text-center text-xs text-[color:var(--text-muted)]">
-                {callState === "active" && (
-                  <span>Recording timings & analytics…</span>
-                )}
-                {callState === "ended" && duration > 0 && (
-                  <span>Session {formatDuration(duration)} — timings recorded</span>
-                )}
-                {callState === "idle" && (
-                  <span>One cinematic orb reacts to your voice when the channel is live.</span>
-                )}
-                {callState === "connecting" && (
-                  <span>Connecting…</span>
-                )}
-              </div>
+              <p className="text-center text-xs text-[color:var(--text-muted)]">
+                {callState === "active"
+                  ? "Connected — voice level"
+                  : "Start a call to see live voice level"}
+              </p>
+
+              {phone && (
+                <div className="w-full text-center">
+                  <span className="text-[10px] uppercase tracking-wider text-[color:var(--text-muted)]">
+                    Basethesis{" "}
+                  </span>
+                  {lastCall ? (
+                    <span className="text-xs text-[color:var(--text-soft)]">
+                      Last call{" "}
+                      {new Date(lastCall.startedAt).toLocaleDateString()}{" "}
+                      {lastCall.outcome && `(${lastCall.outcome})`}
+                    </span>
+                  ) : (
+                    <span className="text-xs text-[color:var(--text-muted)]">No calls yet</span>
+                  )}
+                </div>
+              )}
+
+              {(callState === "active" || callState === "ended") && transcript.length > 0 && (
+                <div className="w-full">
+                  <div className="mb-2 flex items-center justify-between">
+                    <span className="text-xs font-medium uppercase tracking-wider text-[color:var(--text-muted)]">
+                      Live transcript
+                    </span>
+                    <span className="text-[10px] text-[color:var(--text-muted)]">
+                      {transcript.length} line{transcript.length !== 1 ? "s" : ""}
+                    </span>
+                  </div>
+                  <div
+                    ref={scrollRef}
+                    className="max-h-40 overflow-y-auto rounded-xl border border-[color:var(--border)] bg-[color:var(--surface-0)]/80 p-3 text-left"
+                  >
+                    <div className="space-y-2">
+                      {transcript.map((line) => (
+                        <div
+                          key={line.id}
+                          className={cn(
+                            "rounded-lg px-3 py-2 text-sm",
+                            line.text.startsWith("You:")
+                              ? "ml-2 bg-[color:var(--accent)]/10 text-[color:var(--text-soft)]"
+                              : "mr-2 bg-[color:var(--surface-2)]/80 text-[color:var(--text-soft)]"
+                          )}
+                        >
+                          {line.text}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {permissionError && (
                 <div className="rounded-lg border border-red-500/50 bg-red-600/10 px-4 py-3 text-sm text-red-200">
@@ -440,7 +533,7 @@ export default function DashboardPage() {
                 {callState === "connecting" && (
                   <button
                     type="button"
-                    className="inline-flex flex-1 items-center justify-center rounded-full border border-white/15 bg-[color:var(--surface-0)]/80 px-6 py-3 text-sm font-medium tracking-wide text-[color:var(--text-soft)] md:flex-none"
+                    className="inline-flex flex-1 items-center justify-center rounded-full border border-[color:var(--border)] bg-[color:var(--surface-0)] px-6 py-3 text-sm font-medium tracking-wide text-[color:var(--text-soft)] md:flex-none"
                     disabled
                   >
                     Linking…
@@ -459,7 +552,7 @@ export default function DashboardPage() {
                   <button
                     type="button"
                     onClick={resetCall}
-                    className="inline-flex flex-1 items-center justify-center rounded-full border border-white/20 bg-[color:var(--surface-0)]/80 px-6 py-3 text-sm font-medium tracking-wide text-[color:var(--text-soft)] transition-[background,transform,border-color] duration-[260ms] ease-[cubic-bezier(0.19,1,0.22,1)] md:flex-none"
+                    className="inline-flex flex-1 items-center justify-center rounded-full border border-[color:var(--border)] bg-[color:var(--surface-2)] px-6 py-3 text-sm font-medium tracking-wide text-[color:var(--text-soft)] transition-[background,transform,border-color] duration-[260ms] ease-[cubic-bezier(0.19,1,0.22,1)] hover:bg-[color:var(--surface-0)] md:flex-none"
                   >
                     Start another call
                   </button>

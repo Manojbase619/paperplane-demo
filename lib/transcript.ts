@@ -66,7 +66,7 @@ export function buildMockTranscript(seed: number = Date.now()) {
   // Deterministic-ish sequence so it feels cohesive.
   const base = seed % 1000;
   const script: Array<{ speaker: Speaker; text: string }> = [
-    { speaker: "agent", text: "Paperplane online. I’m listening." },
+    { speaker: "agent", text: "Basethesis online. I’m listening." },
     { speaker: "user", text: "Hey—can you help me book a quick meeting for tomorrow?" },
     { speaker: "agent", text: "Absolutely. What time window works best, and which timezone?" },
     { speaker: "user", text: "Anytime between 2 and 5 PM, IST." },

@@ -1,141 +1,234 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-
+import { motion } from "framer-motion";
 import { CountrySelect } from "@/components/CountrySelect";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { cn } from "@/lib/utils";
 import { countries, type Country } from "@/lib/countries";
-import { STORAGE_KEYS, safeSetLocalStorageItem } from "@/lib/storage";
+import { getCurrentUser, setCurrentUser, type StoredUser } from "@/lib/storage";
 
 export default function LoginPage() {
   const router = useRouter();
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [country, setCountry] = useState<Country | null>(null);
+  const [rememberMe, setRememberMe] = useState(true);
+  const [invalidShake, setInvalidShake] = useState(false);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const storedPhone = window.localStorage.getItem(STORAGE_KEYS.phone);
-    const storedCountry = window.localStorage.getItem(STORAGE_KEYS.country);
-    if (storedCountry) {
-      const c = countries.find((x) => x.code === storedCountry) ?? null;
-      setCountry(c);
-    }
-    if (!storedPhone) return;
-    const digits = storedPhone.replace(/\D/g, "");
-    if (digits.length === 10) {
-      setPhone(digits);
-      return;
-    }
-    if (digits.length > 10) {
-      const localNumber = digits.slice(-10);
-      const dialCodeDigits = digits.slice(0, -10);
-      setPhone(localNumber);
-      const c = countries.find(
-        (x) => x.dialCode.replace(/\D/g, "") === dialCodeDigits
-      );
-      if (c) setCountry(c);
+    const user = getCurrentUser();
+    if (user) {
+      setFirstName(user.firstName);
+      setLastName(user.lastName);
+      setEmail(user.email);
+      const c = countries.find((co) => co.code === user.countryCode);
+      setCountry(c ?? null);
+      const fullDigits = user.phone.replace(/\D/g, "");
+      const dialDigits = (c?.dialCode ?? "").replace(/\D/g, "");
+      const national = dialDigits ? fullDigits.slice(dialDigits.length) : fullDigits;
+      setPhone(national);
+      setRememberMe(user.rememberMe);
     }
   }, []);
 
-  const formattedPhone = useMemo(() => {
-    if (!phone || phone.length !== 10) return "";
-    const grouped = phone.replace(/(\d{3})(\d{3})(\d+)/, "$1 $2 $3");
-    return country ? `${country.dialCode} ${grouped}` : grouped;
-  }, [phone, country]);
+  const phoneDigits = 10;
+  const phoneDigitsOnly = phone.replace(/\D/g, "");
+  const phoneValid = country && phoneDigitsOnly.length === phoneDigits;
+
+  function formatPhoneDisplay(value: string): string {
+    const d = value.replace(/\D/g, "").slice(0, phoneDigits);
+    if (phoneDigits <= 10 && d.length > 3) {
+      return d.slice(0, 3) + " " + d.slice(3, 6) + (d.length > 6 ? " " + d.slice(6) : "");
+    }
+    return d;
+  }
+
+  function handlePhoneInput(value: string) {
+    const digits = value.replace(/\D/g, "").slice(0, phoneDigits);
+    setPhone(digits);
+    setInvalidShake(false);
+  }
+
+  function handleCountryChange(c: Country) {
+    setCountry(c);
+    setPhone((prev) => prev.replace(/\D/g, "").slice(0, 10));
+    setInvalidShake(false);
+  }
 
   function handleLogin(e: React.FormEvent) {
     e.preventDefault();
-    const digits = phone.replace(/\D/g, "").slice(0, 10);
-    if (digits.length !== 10 || !country) return;
-    safeSetLocalStorageItem(STORAGE_KEYS.phone, digits);
-    safeSetLocalStorageItem(STORAGE_KEYS.country, country.code);
-    router.push("/dashboard");
+    const trimmedPhone = phone.replace(/\D/g, "").trim();
+    if (!trimmedPhone || !country || trimmedPhone.length !== phoneDigits) {
+      setInvalidShake(true);
+      return;
+    }
+    const fullPhone = `${country.dialCode} ${trimmedPhone}`.trim();
+    const user: StoredUser = {
+      firstName: firstName.trim(),
+      lastName: lastName.trim(),
+      email: email.trim(),
+      phone: fullPhone,
+      countryCode: country.code,
+      rememberMe,
+    };
+    setCurrentUser(user);
+    router.push("/console/dashboard");
   }
 
-  return (
-    <div className="relative min-h-dvh overflow-hidden text-[color:var(--text-soft)]">
-      <video
-        className="pointer-events-none fixed inset-0 h-full w-full object-cover opacity-40"
-        autoPlay
-        loop
-        muted
-        playsInline
-      >
-        <source src="/cinematic-orbit.mp4" type="video/mp4" />
-      </video>
-      <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_0%_0%,rgba(0,0,0,0.8),transparent_55%),radial-gradient(circle_at_100%_0%,rgba(0,0,0,0.8),transparent_60%),linear-gradient(180deg,rgba(3,4,10,0.95),rgba(3,3,8,0.98))]" />
+  const [nameOnly, setNameOnly] = useState("");
+  useEffect(() => {
+    const u = getCurrentUser();
+    if (!u) return;
+    const first = (u.firstName || "").trim();
+    const last = (u.lastName || "").trim();
+    if (first || last) setNameOnly([first, last].filter(Boolean).join(" "));
+  }, []);
 
-      <div className="relative mx-auto flex min-h-dvh max-w-5xl flex-col px-4 py-10 md:px-6">
-        <header className="mb-10 flex items-center justify-between gap-4">
+  const signInSubtextClass =
+    "mt-2 text-sm opacity-90 text-[color:var(--text-soft)]";
+  const pageRootClass =
+    "relative min-h-dvh overflow-x-hidden bg-[color:var(--bg0)] text-[color:var(--text-soft)]";
+  const motionCardClass =
+    "glass-card w-full max-w-md rounded-2xl border border-[color:var(--border)] p-6 shadow-xl sm:p-8";
+  const transitionConfig = {
+    duration: 0.5,
+    ease: [0.25, 0.46, 0.45, 0.94] as const,
+  };
+
+  return (
+    <div className={pageRootClass}>
+      {/* Floating gradient background */}
+      <div
+        className="pointer-events-none fixed inset-0 opacity-40"
+        style={{
+          background: `
+            radial-gradient(ellipse 80% 50% at 50% -20%, rgba(108, 62, 232, 0.25), transparent),
+            radial-gradient(ellipse 60% 40% at 100% 50%, rgba(108, 62, 232, 0.12), transparent),
+            radial-gradient(ellipse 60% 40% at 0% 80%, rgba(108, 62, 232, 0.1), transparent)
+          `,
+        }}
+      />
+
+      <div className="relative mx-auto flex min-h-dvh max-w-lg flex-col px-4 py-8 sm:px-6 sm:py-10">
+        <header className="mb-8 flex shrink-0 items-center justify-between gap-3">
           <div>
-            <div className="text-xs uppercase tracking-[0.32em] text-[color:var(--accent)]">
-              ConnectionOS
+            <div className="text-[10px] font-semibold uppercase tracking-[0.28em] text-[color:var(--accent)]">
+              Basethesis
             </div>
-            <h1 className="mt-1 text-2xl text-[color:var(--text-soft)] md:text-3xl">
-              Neon Voice Console
+            <h1 className="mt-1 text-xl font-semibold tracking-tight text-[color:var(--text-soft)] sm:text-2xl">
+              Voice Console
             </h1>
           </div>
-          {formattedPhone && (
-            <div className="hidden rounded-full border border-white/10 bg-[color:var(--surface-0)]/80 px-4 py-1.5 text-xs text-[color:var(--text-muted)] md:block">
-              Last linked <span className="text-[color:var(--text-soft)]">{formattedPhone}</span>
-            </div>
-          )}
+          <div className="flex items-center gap-2">
+            <ThemeToggle size="sm" />
+            {nameOnly && (
+              <div className="hidden rounded-full border border-[color:var(--border)] bg-[color:var(--surface-2)] px-3 py-1.5 text-xs text-[color:var(--text-muted)] md:block">
+                <span className="text-[color:var(--text-soft)]">{nameOnly}</span>
+              </div>
+            )}
+          </div>
         </header>
 
-        <main className="cinematic-section flex flex-1 items-center">
-            <div className="surface-card mx-auto flex w-full max-w-xl flex-col gap-6 px-5 py-6 md:px-7 md:py-8">
-            <div>
-              <h2 className="text-sm uppercase tracking-[0.32em] text-[color:var(--text-muted)]">
-                Link your line
-              </h2>
-              <p className="mt-2 text-sm text-[color:var(--text-soft)]/85">
-                Jack a number into the console. Every call stays wired to this deck until you cut the line.
-              </p>
-            </div>
+        <main className="flex flex-1 flex-col items-center justify-center">
+          <motion.div
+            className={motionCardClass}
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={transitionConfig}
+          >
+            <h2 className="text-sm font-medium uppercase tracking-widest text-[color:var(--text-muted)]">
+              Sign in
+            </h2>
+            <p className={signInSubtextClass}>
+              Enter your phone number. No verification codes.
+            </p>
 
-            <form onSubmit={handleLogin} className="space-y-4">
-              <div className="grid gap-3 md:grid-cols-[minmax(0,1.4fr)_minmax(0,2fr)]">
-                <CountrySelect value={country} onChange={setCountry} />
-                <div className="field-shell">
-                  <label className="flex flex-col gap-1 text-xs uppercase tracking-[0.22em] text-[color:var(--text-muted)]">
-                    Phone number
-                    <input
-                      type="tel"
-                      inputMode="numeric"
-                      pattern="[0-9]*"
-                      maxLength={10}
-                      value={phone}
-                      onChange={(e) => {
-                        const digits = e.target.value.replace(/\D/g, "").slice(0, 10);
-                        setPhone(digits);
-                      }}
-                      placeholder="9876543210"
-                      className="mt-1 bg-transparent text-sm text-[color:var(--text-soft)] outline-none placeholder:text-[color:var(--text-muted)]"
-                    />
+            <form onSubmit={handleLogin} className="mt-6 space-y-4">
+              {/* Step 1: Country shown only once. After selection, this block is hidden. */}
+              {!country ? (
+                <div>
+                  <label className="block text-[10px] font-medium uppercase tracking-wider text-[color:var(--text-muted)] mb-2">
+                    Country
                   </label>
+                  <CountrySelect value={country} onChange={handleCountryChange} />
                 </div>
+              ) : (
+                <>
+                  {/* Step 2: Only phone field; country shown once as read-only with Change link */}
+                  <div
+                    className={cn(
+                      "rounded-xl border bg-[color:var(--surface-2)] px-4 py-3 transition-all duration-200",
+                      phoneValid
+                        ? "input-glow-valid border-[color:var(--cta-green)]/40"
+                        : "border-[color:var(--border)]",
+                      invalidShake && "input-shake border-red-500/50"
+                    )}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <label className="block text-[10px] font-medium uppercase tracking-wider text-[color:var(--text-muted)]">
+                        Phone number
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => setCountry(null)}
+                        className="text-[11px] font-medium text-[color:var(--accent)] hover:underline"
+                      >
+                        Change country
+                      </button>
+                    </div>
+                    <div className="mt-1 flex items-baseline gap-2">
+                      <span className="text-sm font-medium text-[color:var(--text-muted)] shrink-0">
+                        {country.flag} {country.dialCode}
+                      </span>
+                      <input
+                        type="tel"
+                        inputMode="numeric"
+                        autoComplete="tel-national"
+                        value={formatPhoneDisplay(phone)}
+                        onChange={(e) => handlePhoneInput(e.target.value)}
+                        placeholder="000 000 0000"
+                        maxLength={phoneDigits + 2}
+                        className="min-w-0 flex-1 bg-transparent text-sm font-medium text-[color:var(--text-soft)] outline-none placeholder:text-[color:var(--text-muted)]"
+                      />
+                    </div>
+                  </div>
+                </>
+              )}
+
+              <div className="flex flex-col gap-3 pt-2">
+                <motion.button
+                  type="submit"
+                  disabled={!phoneValid}
+                  className={cn(
+                    "w-full rounded-xl py-3.5 text-sm font-semibold text-white transition-colors",
+                    phoneValid
+                      ? "bg-[color:var(--accent)] shadow-lg shadow-[color:var(--accent)]/25 hover:opacity-95"
+                      : "cursor-not-allowed bg-[color:var(--surface-0)] text-[color:var(--text-muted)]"
+                  )}
+                  whileHover={phoneValid ? { scale: 1.01 } : {}}
+                  whileTap={phoneValid ? { scale: 0.99 } : {}}
+                >
+                  Get started
+                </motion.button>
+                <label className="flex cursor-pointer items-center justify-center gap-2 text-xs text-[color:var(--text-muted)]">
+                  <input
+                    type="checkbox"
+                    checked={rememberMe}
+                    onChange={(e) => setRememberMe(e.target.checked)}
+                    className="h-3.5 w-3.5 rounded border-[color:var(--border)] text-[color:var(--accent)]"
+                  />
+                  Remember me
+                </label>
               </div>
-
-                <button
-                type="submit"
-                className={cn(
-                  "btn-primary w-full md:w-auto",
-                  (phone.replace(/\D/g, "").length !== 10 || !country) && "opacity-60"
-                )}
-                disabled={phone.replace(/\D/g, "").length !== 10 || !country}
-              >
-                Enter voice deck
-              </button>
-
-              <p className="text-xs text-[color:var(--text-muted)]">
-                No verification. No codes. This is a local binding only.
-              </p>
             </form>
-          </div>
+          </motion.div>
         </main>
       </div>
     </div>
   );
 }
-

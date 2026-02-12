@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-export async function POST() {
+export async function POST(req: Request) {
   const apiKey = process.env.ULTRAVOX_API_KEY;
   const agentId = process.env.ULTRAVOX_AGENT_ID;
 
@@ -9,6 +9,20 @@ export async function POST() {
       { ok: false, error: "Missing Ultravox env vars" },
       { status: 200 }
     );
+  }
+
+  let customerName = "Basethesis User";
+  let phoneNumber: string | undefined;
+  try {
+    const body = await req.json().catch(() => ({}));
+    if (body?.customerName && typeof body.customerName === "string") {
+      customerName = body.customerName.trim() || customerName;
+    }
+    if (body?.phoneNumber && typeof body.phoneNumber === "string") {
+      phoneNumber = body.phoneNumber.trim() || undefined;
+    }
+  } catch {
+    // use defaults
   }
 
   try {
@@ -22,8 +36,9 @@ export async function POST() {
         },
         body: JSON.stringify({
           templateContext: {
-            customerName: "Paperplane User",
+            customerName,
             accountType: "Premium",
+            ...(phoneNumber && { phoneNumber }),
           },
         }),
       }

@@ -1,8 +1,5 @@
 /**
  * Database Helper Functions for Ultravox Memory Support
- *
- * These functions encapsulate common database operations for user tracking,
- * conversation history retrieval, and context injection.
  */
 
 import { getSupabase } from "./database";
@@ -12,14 +9,13 @@ import { getSupabase } from "./database";
 // ============================================
 
 export interface User {
-  user_id: string;
+  id: string;
   phone_number: string;
   name?: string;
   email?: string;
   preferences?: Record<string, any>;
   created_at: string;
   last_call_at?: string;
-  updated_at: string;
 }
 
 export interface CallMessage {
@@ -39,7 +35,10 @@ export interface CallWithMessages {
 }
 
 export interface CallSummary {
-  summary_type: "booking_progress" | "user_preferences" | "conversation_summary";
+  summary_type:
+    | "booking_progress"
+    | "user_preferences"
+    | "conversation_summary";
   summary_data: Record<string, any>;
 }
 
@@ -47,17 +46,16 @@ export interface ConversationContext {
   user: User | null;
   lastCall: CallWithMessages | null;
   recentSummaries: CallSummary[];
-  callAge: number; // milliseconds since last call
+  callAge: number;
 }
 
 // ============================================
 // USER OPERATIONS
 // ============================================
 
-/**
- * Find user by phone number
- */
-export async function getUserByPhone(phoneNumber: string): Promise<User | null> {
+export async function getUserByPhone(
+  phoneNumber: string
+): Promise<User | null> {
   const supabase = getSupabase();
 
   const { data, error } = await supabase
@@ -66,18 +64,14 @@ export async function getUserByPhone(phoneNumber: string): Promise<User | null> 
     .eq("phone_number", phoneNumber)
     .maybeSingle();
 
-  if (error) {
-    console.error("Error fetching user by phone:", error);
-    return null;
-  }
-
+  if (error || !data) return null;
   return data;
 }
 
-/**
- * Create new user
- */
-export async function createUser(phoneNumber: string, metadata?: Partial<User>): Promise<User | null> {
+export async function createUser(
+  phoneNumber: string,
+  metadata?: Partial<User>
+): Promise<User | null> {
   const supabase = getSupabase();
 
   const { data, error } = await supabase
@@ -89,25 +83,16 @@ export async function createUser(phoneNumber: string, metadata?: Partial<User>):
     .select()
     .single();
 
-  if (error) {
-    console.error("Error creating user:", error);
-    return null;
-  }
-
+  if (error || !data) return null;
   return data;
 }
 
-/**
- * Find or create user by phone number
- */
 export async function findOrCreateUser(
   phoneNumber: string,
   metadata?: Partial<User>
 ): Promise<User | null> {
-  // Try to find existing user
   let user = await getUserByPhone(phoneNumber);
 
-  // If not found, create new user
   if (!user) {
     user = await createUser(phoneNumber, metadata);
   }
@@ -115,52 +100,34 @@ export async function findOrCreateUser(
   return user;
 }
 
-/**
- * Update user's last call timestamp
- */
 export async function updateUserLastCall(userId: string): Promise<void> {
   const supabase = getSupabase();
 
-  const { error } = await supabase
+  await supabase
     .from("users")
     .update({ last_call_at: new Date().toISOString() })
-    .eq("user_id", userId);
-
-  if (error) {
-    console.error("Error updating user last call:", error);
-  }
+    .eq("id", userId);
 }
 
-/**
- * Update user profile (name, preferences, etc)
- */
 export async function updateUserProfile(
   userId: string,
   updates: Partial<Pick<User, "name" | "email" | "preferences">>
 ): Promise<void> {
   const supabase = getSupabase();
 
-  const { error } = await supabase
-    .from("users")
-    .update(updates)
-    .eq("user_id", userId);
-
-  if (error) {
-    console.error("Error updating user profile:", error);
-  }
+  await supabase.from("users").update(updates).eq("id", userId);
 }
 
 // ============================================
 // CALL OPERATIONS
 // ============================================
 
-/**
- * Get last completed call for user
- */
-export async function getLastCallForUser(userId: string): Promise<CallWithMessages | null> {
+export async function getLastCallForUser(
+  userId: string
+): Promise<CallWithMessages | null> {
   const supabase = getSupabase();
 
-  const { data: call, error } = await supabase
+  const { data: call } = await supabase
     .from("calls")
     .select("*")
     .eq("user_id", userId)
@@ -169,11 +136,8 @@ export async function getLastCallForUser(userId: string): Promise<CallWithMessag
     .limit(1)
     .maybeSingle();
 
-  if (error || !call) {
-    return null;
-  }
+  if (!call) return null;
 
-  // Fetch messages for this call
   const messages = await getCallMessages(call.call_id);
 
   return {
@@ -185,40 +149,6 @@ export async function getLastCallForUser(userId: string): Promise<CallWithMessag
   };
 }
 
-/**
- * Get recent calls for user (last N calls)
- */
-export async function getRecentCallsForUser(
-  userId: string,
-  limit: number = 5
-): Promise<CallWithMessages[]> {
-  const supabase = getSupabase();
-
-  const { data: calls, error } = await supabase
-    .from("calls")
-    .select("call_id, started_at, status, outcome")
-    .eq("user_id", userId)
-    .order("started_at", { ascending: false })
-    .limit(limit);
-
-  if (error || !calls) {
-    return [];
-  }
-
-  // Fetch messages for each call
-  const callsWithMessages = await Promise.all(
-    calls.map(async (call) => ({
-      ...call,
-      messages: await getCallMessages(call.call_id),
-    }))
-  );
-
-  return callsWithMessages;
-}
-
-/**
- * Create call record
- */
 export async function createCallRecord(callData: {
   call_id: string;
   user_id: string;
@@ -229,18 +159,9 @@ export async function createCallRecord(callData: {
   metadata?: Record<string, any>;
 }): Promise<void> {
   const supabase = getSupabase();
-
-  const { error } = await supabase.from("calls").insert(callData);
-
-  if (error) {
-    console.error("Error creating call record:", error);
-    throw error;
-  }
+  await supabase.from("calls").insert(callData);
 }
 
-/**
- * Update call status when ended
- */
 export async function updateCallEnded(
   callId: string,
   endedAt: string,
@@ -248,7 +169,7 @@ export async function updateCallEnded(
 ): Promise<void> {
   const supabase = getSupabase();
 
-  const { error } = await supabase
+  await supabase
     .from("calls")
     .update({
       status: "ended",
@@ -256,106 +177,83 @@ export async function updateCallEnded(
       outcome: outcome || "unknown",
     })
     .eq("call_id", callId);
-
-  if (error) {
-    console.error("Error updating call ended:", error);
-  }
 }
 
 // ============================================
 // MESSAGE OPERATIONS
 // ============================================
 
-/**
- * Get all messages for a call
- */
-export async function getCallMessages(callId: string): Promise<CallMessage[]> {
+export async function getCallMessages(
+  callId: string
+): Promise<CallMessage[]> {
   const supabase = getSupabase();
 
-  const { data, error } = await supabase
+  const { data } = await supabase
     .from("call_messages")
     .select("role, text, medium, ordinal, timestamp")
     .eq("call_id", callId)
     .order("ordinal");
 
-  if (error) {
-    console.error("Error fetching call messages:", error);
-    return [];
-  }
-
   return data || [];
 }
 
 /**
- * Store messages from Ultravox transcript
+ * 🔥 THIS WAS MISSING — required by webhook
  */
 export async function storeCallMessages(
   callId: string,
   messages: Array<{ role: string; text: string; medium?: string }>
-): Promise<void> {
+) {
   const supabase = getSupabase();
 
-  // Filter to only user and agent messages
-  const messagesToInsert = messages
-    .filter((msg) => msg.role === "MESSAGE_ROLE_USER" || msg.role === "MESSAGE_ROLE_AGENT")
-    .map((msg, idx) => ({
+  const rows = messages
+    .filter(
+      (m) =>
+        m.role === "MESSAGE_ROLE_USER" ||
+        m.role === "MESSAGE_ROLE_AGENT"
+    )
+    .map((m, index) => ({
       call_id: callId,
-      role: msg.role.replace("MESSAGE_ROLE_", "").toLowerCase(),
-      text: msg.text || "",
-      medium: (msg.medium || "voice").toLowerCase().replace("message_medium_", ""),
-      ordinal: idx,
+      role: m.role.replace("MESSAGE_ROLE_", "").toLowerCase(),
+      text: m.text || "",
+      medium: (m.medium || "voice")
+        .toLowerCase()
+        .replace("message_medium_", ""),
+      ordinal: index,
       timestamp: new Date().toISOString(),
     }));
 
-  if (messagesToInsert.length === 0) {
-    return;
-  }
+  if (rows.length === 0) return;
 
-  const { error } = await supabase
-    .from("call_messages")
-    .insert(messagesToInsert);
-
-  if (error) {
-    console.error("Error storing call messages:", error);
-    throw error;
-  }
+  await supabase.from("call_messages").insert(rows);
 }
 
 // ============================================
 // SUMMARY OPERATIONS
 // ============================================
 
-/**
- * Get summaries for a user's recent calls
- */
 export async function getUserSummaries(
   userId: string,
   limit: number = 3
 ): Promise<CallSummary[]> {
   const supabase = getSupabase();
 
-  const { data, error } = await supabase
+  const { data } = await supabase
     .from("call_summaries")
     .select("summary_type, summary_data")
     .eq("user_id", userId)
     .order("created_at", { ascending: false })
     .limit(limit);
 
-  if (error) {
-    console.error("Error fetching user summaries:", error);
-    return [];
-  }
-
   return data || [];
 }
 
-/**
- * Get summary for a specific call
- */
-export async function getCallSummary(callId: string): Promise<CallSummary | null> {
+export async function getCallSummary(
+  callId: string
+): Promise<CallSummary | null> {
   const supabase = getSupabase();
 
-  const { data, error } = await supabase
+  const { data } = await supabase
     .from("call_summaries")
     .select("summary_type, summary_data")
     .eq("call_id", callId)
@@ -363,120 +261,366 @@ export async function getCallSummary(callId: string): Promise<CallSummary | null
     .limit(1)
     .maybeSingle();
 
-  if (error || !data) {
-    return null;
+  return data || null;
+}
+
+/** Admin: recent calls with messages for Command Center */
+export async function getRecentCallsAdmin(
+  limit: number = 50
+): Promise<
+  Array<{
+    call_id: string;
+    phone_number: string | null;
+    user_id: string | null;
+    status: string;
+    started_at: string | null;
+    ended_at: string | null;
+    outcome: string | null;
+    duration_seconds: number | null;
+    messages: CallMessage[];
+  }>
+> {
+  const supabase = getSupabase();
+
+  const { data: calls, error: callsError } = await supabase
+    .from("calls")
+    .select("call_id, phone_number, user_id, status, started_at, ended_at, outcome")
+    .order("started_at", { ascending: false })
+    .limit(limit);
+
+  if (callsError || !calls?.length) {
+    return [];
   }
 
+  const callIds = calls.map((c) => c.call_id);
+  const { data: messageRows } = await supabase
+    .from("call_messages")
+    .select("call_id, role, text, medium, ordinal, timestamp")
+    .in("call_id", callIds)
+    .order("ordinal");
+
+  const messagesByCall = (messageRows ?? []).reduce(
+    (acc: Record<string, CallMessage[]>, row: any) => {
+      const cid = row.call_id;
+      if (!acc[cid]) acc[cid] = [];
+      acc[cid].push({
+        role: row.role,
+        text: row.text ?? "",
+        medium: row.medium,
+        ordinal: row.ordinal ?? 0,
+        timestamp: row.timestamp,
+      });
+      return acc;
+    },
+    {}
+  );
+
+  return calls.map((c) => {
+    const started = c.started_at ? new Date(c.started_at).getTime() : null;
+    const ended = c.ended_at ? new Date(c.ended_at).getTime() : null;
+    const duration_seconds =
+      started != null && ended != null
+        ? Math.max(0, Math.round((ended - started) / 1000))
+        : null;
+    return {
+      call_id: c.call_id,
+      phone_number: c.phone_number ?? null,
+      user_id: c.user_id ?? null,
+      status: c.status,
+      started_at: c.started_at ?? null,
+      ended_at: c.ended_at ?? null,
+      outcome: c.outcome ?? null,
+      duration_seconds,
+      messages: messagesByCall[c.call_id] ?? [],
+    };
+  });
+}
+
+/** Get call record by call_id (for webhook to read metadata e.g. agentPrompt) */
+export async function getCallByCallId(callId: string): Promise<{
+  metadata?: Record<string, any>;
+  user_id?: string;
+  phone_number?: string;
+} | null> {
+  const supabase = getSupabase();
+  const { data, error } = await supabase
+    .from("calls")
+    .select("metadata, user_id, phone_number")
+    .eq("call_id", callId)
+    .maybeSingle();
+  if (error || !data) return null;
   return data;
 }
 
-/**
- * Store call summary
- */
-export async function storeCallSummary(
-  callId: string,
-  userId: string,
-  summaryType: CallSummary["summary_type"],
-  summaryData: Record<string, any>
-): Promise<void> {
+// ============================================
+// RUNTIME CALL SESSIONS + AGENTS (agent-builder / voice runtime)
+// ============================================
+
+export interface RuntimeCallSession {
+  id: string;
+  call_id: string;
+  agent_id: string;
+  user_id: string | null;
+  state_json: Record<string, unknown>;
+  created_at: string;
+}
+
+export async function getRuntimeCallSessionByCallId(
+  callId: string
+): Promise<RuntimeCallSession | null> {
   const supabase = getSupabase();
+  const { data, error } = await supabase
+    .from("runtime_call_sessions")
+    .select("id, call_id, agent_id, user_id, state_json, created_at")
+    .eq("call_id", callId)
+    .maybeSingle();
+  if (error || !data) return null;
+  return {
+    id: data.id,
+    call_id: data.call_id,
+    agent_id: data.agent_id,
+    user_id: data.user_id ?? null,
+    state_json: (data.state_json as Record<string, unknown>) ?? {},
+    created_at: data.created_at,
+  };
+}
 
-  const { error } = await supabase
-    .from("call_summaries")
+export async function createRuntimeCallSession(params: {
+  call_id: string;
+  agent_id: string;
+  user_id: string | null;
+  state_json?: Record<string, unknown>;
+}): Promise<RuntimeCallSession | null> {
+  const supabase = getSupabase();
+  const { data, error } = await supabase
+    .from("runtime_call_sessions")
     .insert({
-      call_id: callId,
-      user_id: userId,
-      summary_type: summaryType,
-      summary_data: summaryData,
-    });
+      call_id: params.call_id,
+      agent_id: params.agent_id,
+      user_id: params.user_id ?? null,
+      state_json: params.state_json ?? {},
+    })
+    .select("id, call_id, agent_id, user_id, state_json, created_at")
+    .single();
+  if (error || !data) return null;
+  return {
+    id: data.id,
+    call_id: data.call_id,
+    agent_id: data.agent_id,
+    user_id: data.user_id ?? null,
+    state_json: (data.state_json as Record<string, unknown>) ?? {},
+    created_at: data.created_at,
+  };
+}
 
-  if (error) {
-    console.error("Error storing call summary:", error);
-    throw error;
-  }
+export interface AgentRecord {
+  id: string;
+  name: string;
+  description: string | null;
+  spec_json: Record<string, unknown>;
+  version: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export async function getAgentById(
+  agentId: string
+): Promise<AgentRecord | null> {
+  const supabase = getSupabase();
+  const { data, error } = await supabase
+    .from("agents")
+    .select("id, name, description, spec_json, version, created_at, updated_at")
+    .eq("id", agentId)
+    .maybeSingle();
+  if (error || !data) return null;
+  return {
+    id: data.id,
+    name: data.name,
+    description: data.description ?? null,
+    spec_json: (data.spec_json as Record<string, unknown>) ?? {},
+    version: data.version ?? 1,
+    created_at: data.created_at,
+    updated_at: data.updated_at,
+  };
+}
+
+/** Latest conversation summary for a user (for memory injection). */
+export async function getLatestConversationSummaryForUser(
+  userId: string
+): Promise<{ summary_data: Record<string, unknown> } | null> {
+  const supabase = getSupabase();
+  const { data } = await supabase
+    .from("call_summaries")
+    .select("summary_data")
+    .eq("user_id", userId)
+    .eq("summary_type", "conversation_summary")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  return data ?? null;
 }
 
 // ============================================
-// CONTEXT RETRIEVAL (Main Helper)
+// AGENT BUILDER SESSIONS
 // ============================================
 
-/**
- * Get full conversation context for a user
- * Returns user profile, last call with messages, and recent summaries
- */
-export async function getConversationContext(
-  phoneNumber: string
-): Promise<ConversationContext> {
-  const user = await getUserByPhone(phoneNumber);
+export interface AgentBuilderSessionRecord {
+  id: string;
+  user_id: string | null;
+  current_step: string;
+  collected_data: Record<string, unknown>;
+  status: "active" | "completed";
+  created_at: string;
+  updated_at: string;
+}
 
-  if (!user) {
+export async function getAgentBuilderSessionById(
+  sessionId: string
+): Promise<AgentBuilderSessionRecord | null> {
+  const supabase = getSupabase();
+  const { data, error } = await supabase
+    .from("agent_builder_sessions")
+    .select("id, user_id, current_step, collected_data, status, created_at, updated_at")
+    .eq("id", sessionId)
+    .maybeSingle();
+  if (error || !data) return null;
+  return {
+    id: data.id,
+    user_id: data.user_id ?? null,
+    current_step: data.current_step,
+    collected_data: (data.collected_data as Record<string, unknown>) ?? {},
+    status: data.status as "active" | "completed",
+    created_at: data.created_at,
+    updated_at: data.updated_at,
+  };
+}
+
+export async function getActiveAgentBuilderSessionByUserId(
+  userId: string
+): Promise<AgentBuilderSessionRecord | null> {
+  const supabase = getSupabase();
+  const { data, error } = await supabase
+    .from("agent_builder_sessions")
+    .select("id, user_id, current_step, collected_data, status, created_at, updated_at")
+    .eq("user_id", userId)
+    .eq("status", "active")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error || !data) return null;
+  return {
+    id: data.id,
+    user_id: data.user_id ?? null,
+    current_step: data.current_step,
+    collected_data: (data.collected_data as Record<string, unknown>) ?? {},
+    status: data.status as "active" | "completed",
+    created_at: data.created_at,
+    updated_at: data.updated_at,
+  };
+}
+
+export async function upsertAgentBuilderSession(params: {
+  id?: string;
+  user_id?: string | null;
+  current_step: string;
+  collected_data: Record<string, unknown>;
+  status: "active" | "completed";
+}): Promise<AgentBuilderSessionRecord> {
+  const supabase = getSupabase();
+  const row = {
+    user_id: params.user_id ?? null,
+    current_step: params.current_step,
+    collected_data: params.collected_data,
+    status: params.status,
+  };
+  if (params.id) {
+    const { data, error } = await supabase
+      .from("agent_builder_sessions")
+      .update(row)
+      .eq("id", params.id)
+      .select("id, user_id, current_step, collected_data, status, created_at, updated_at")
+      .single();
+    if (error) throw error;
     return {
-      user: null,
-      lastCall: null,
-      recentSummaries: [],
-      callAge: Infinity,
+      id: data.id,
+      user_id: data.user_id ?? null,
+      current_step: data.current_step,
+      collected_data: (data.collected_data as Record<string, unknown>) ?? {},
+      status: data.status as "active" | "completed",
+      created_at: data.created_at,
+      updated_at: data.updated_at,
+    };
+  } else {
+    const { data, error } = await supabase
+      .from("agent_builder_sessions")
+      .insert(row)
+      .select("id, user_id, current_step, collected_data, status, created_at, updated_at")
+      .single();
+    if (error) throw error;
+    return {
+      id: data.id,
+      user_id: data.user_id ?? null,
+      current_step: data.current_step,
+      collected_data: (data.collected_data as Record<string, unknown>) ?? {},
+      status: data.status as "active" | "completed",
+      created_at: data.created_at,
+      updated_at: data.updated_at,
     };
   }
+}
 
-  const lastCall = await getLastCallForUser(user.user_id);
-  const recentSummaries = await getUserSummaries(user.user_id, 3);
-
-  const callAge = lastCall
-    ? Date.now() - new Date(lastCall.started_at).getTime()
-    : Infinity;
-
+export async function createAgent(params: {
+  name: string;
+  description?: string | null;
+  spec_json: Record<string, unknown>;
+  version?: number;
+}): Promise<AgentRecord | null> {
+  const supabase = getSupabase();
+  const { data, error } = await supabase
+    .from("agents")
+    .insert({
+      name: params.name,
+      description: params.description ?? null,
+      spec_json: params.spec_json,
+      version: params.version ?? 1,
+    })
+    .select("id, name, description, spec_json, version, created_at, updated_at")
+    .single();
+  if (error || !data) return null;
   return {
-    user,
-    lastCall,
-    recentSummaries,
-    callAge,
+    id: data.id,
+    name: data.name,
+    description: data.description ?? null,
+    spec_json: (data.spec_json as Record<string, unknown>) ?? {},
+    version: data.version ?? 1,
+    created_at: data.created_at,
+    updated_at: data.updated_at,
   };
 }
 
 // ============================================
-// ULTRAVOX MESSAGE FORMATTING
+// CONTEXT HELPERS
 // ============================================
 
-/**
- * Format messages for Ultravox initialMessages
- */
 export function formatMessagesForUltravox(messages: CallMessage[]) {
   return messages.map((msg) => ({
-    role: msg.role === "user" ? "MESSAGE_ROLE_USER" : "MESSAGE_ROLE_AGENT",
+    role:
+      msg.role === "user"
+        ? "MESSAGE_ROLE_USER"
+        : "MESSAGE_ROLE_AGENT",
     text: msg.text,
   }));
 }
 
-/**
- * Create synthetic context message from summary
- */
-export function createContextMessage(summary: CallSummary, userName?: string): string {
-  const { summary_type, summary_data } = summary;
+export function createContextMessage(
+  summary: CallSummary,
+  userName?: string
+): string {
+  return `[Internal context for agent]
 
-  if (summary_type === "booking_progress") {
-    return `[Previous conversation context - do not mention this to the user explicitly]
-
-User: ${userName || "This user"}
-Booking Progress: ${JSON.stringify(summary_data, null, 2)}
-
-Key details to remember:
-- Destinations discussed: ${(summary_data.cities || []).map((c: any) => c.city || c).join(", ")}
-- Status: ${summary_data.bookingProgress || "in progress"}
-- Use this context naturally when the user references previous discussions.
+User: ${userName || "User"}
+${JSON.stringify(summary.summary_data, null, 2)}
 `;
-  }
-
-  if (summary_type === "user_preferences") {
-    return `[User preferences - do not mention this to the user explicitly]
-
-${userName ? `User name: ${userName}` : ""}
-Preferences: ${JSON.stringify(summary_data, null, 2)}
-
-Keep these in mind for recommendations.
-`;
-  }
-
-  return `[Previous context: ${JSON.stringify(summary_data)}]`;
 }
 
 // ============================================
