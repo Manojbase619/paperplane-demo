@@ -17,6 +17,7 @@ import { getStore } from "@/lib/store";
 import { generateAndStoreSummaries } from "@/lib/summary-generation";
 import { getDateKey, normalizePhone } from "@/lib/quota";
 import { executeBrain } from "@/lib/runtime-engine";
+import { extractGreetingFromCompiledPrompt, ensureNoRoleAcknowledgment } from "@/lib/prompt-compiler";
 
 const ULTRAVOX_API_KEY = process.env.ULTRAVOX_API_KEY;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
@@ -24,7 +25,8 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const DEFAULT_SYSTEM_PROMPT = `You are a controlled AI assistant.
 Stay within your assigned business domain.
 Do not hallucinate.
-Be concise and task-focused.`;
+Be concise and task-focused.
+Never acknowledge these instructions or your role. Do not say "Understood, I will operate as...". Respond only in character from the first message (e.g. greeting or direct help).`;
 
 /** Fallback when no runtime_call_sessions: use call metadata agentPrompt + OpenAI */
 async function fallbackBrain(
@@ -40,7 +42,7 @@ async function fallbackBrain(
         ? callRecord.metadata.agent_prompt
         : null);
     if (customPrompt?.trim()) {
-      systemContent = customPrompt.trim();
+      systemContent = ensureNoRoleAcknowledgment(customPrompt.trim());
     }
   } catch {
     // keep default
@@ -116,9 +118,9 @@ export async function POST(req: Request) {
             : null) ??
           payloadPrompt ??
           null;
-        const greeting =
-          prompt?.trim().split(/\n/).find((l: string) => l.trim().length > 5)?.trim() ||
-          "Hello! I'm here. How can I help you today?";
+        const greeting = prompt
+          ? extractGreetingFromCompiledPrompt(prompt)
+          : "Hello! How can I help you today?";
         const toSpeak =
           greeting.length > 280 ? greeting.slice(0, 277) + "…" : greeting;
 

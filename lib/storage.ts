@@ -92,11 +92,12 @@ export function clearCurrentUser() {
   }
 }
 
-/** Display name for UI: "First Last" or "First" or phone */
+/** Display name for UI: "First Last" or "First" or phone or email */
 export function getDisplayName(user: StoredUser | null): string {
   if (!user) return "";
   const first = (user.firstName || "").trim();
   const last = (user.lastName || "").trim();
   if (first || last) return [first, last].filter(Boolean).join(" ");
-  return user.phone || "";
+  if ((user.phone || "").trim()) return user.phone!.trim();
+  return (user.email || "").trim() || "";
 }

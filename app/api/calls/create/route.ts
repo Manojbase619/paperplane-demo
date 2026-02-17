@@ -18,6 +18,7 @@ import {
   ONE_HOUR,
   ONE_DAY,
 } from "@/lib/db-helpers";
+import { extractGreetingFromCompiledPrompt } from "@/lib/prompt-compiler";
 import { getStore } from "@/lib/store";
 import { getDateKey } from "@/lib/quota";
 
@@ -123,16 +124,12 @@ export async function POST(req: Request) {
         agentPrompt: fullPrompt,
         systemPrompt: fullPrompt,
       };
-      // First thing the user hears: a short greeting derived from the prompt
-      const firstLine =
-        fullPrompt.split(/\n/).find((l) => l.trim().length > 10)?.trim() ||
-        "Hello! How can I help you today?";
+      // First thing the user hears: agent's greeting (from Introduction), not role description
+      const greeting = extractGreetingFromCompiledPrompt(fullPrompt);
       ultravoxRequestBody.firstSpeakerSettings = {
         agent: {
           prompt:
-            firstLine.length > 200
-              ? firstLine.slice(0, 197) + "..."
-              : firstLine,
+            greeting.length > 200 ? greeting.slice(0, 197) + "…" : greeting,
         },
       };
     }

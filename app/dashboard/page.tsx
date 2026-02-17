@@ -45,12 +45,12 @@ export default function DashboardPage() {
 
   useEffect(() => {
     const u = getCurrentUser();
-    if (!u?.phone) {
+    if (!u || (!u.phone && !u.email)) {
       router.replace("/");
       return;
     }
     setUser(u);
-    setPhone(u.phone);
+    setPhone(u.phone || null);
   }, [router]);
 
   useEffect(() => {
@@ -100,6 +100,8 @@ export default function DashboardPage() {
     if (!phone) return "";
     return phone.replace(/\D/g, "").replace(/(\d{3})(\d{3})(\d+)/, "$1 $2 $3");
   }, [phone]);
+
+  const canStartCall = Boolean(phone);
 
   function addTranscriptLine(speakerLabel: "You" | "Agent" | "Unknown", text: string, ts?: number) {
     const clean = String(text ?? "").trim();
@@ -209,7 +211,7 @@ export default function DashboardPage() {
           ? sessionStorage.getItem("basethesis_voice_pending_prompt")
           : null;
       const body: { phoneNumber: string; prompt?: string } = {
-        phoneNumber: phone || "",
+        phoneNumber: phone || "", // empty for email-only users; API may require a number for actual calls
       };
       if (pendingPrompt?.trim()) {
         body.prompt = pendingPrompt.trim();
@@ -523,9 +525,9 @@ export default function DashboardPage() {
                     onClick={startCall}
                     className={cn(
                       "btn-primary flex-1 md:flex-none",
-                      !phone && "opacity-60"
+                      !canStartCall && "opacity-60"
                     )}
-                    disabled={!phone}
+                    disabled={!canStartCall}
                   >
                     Start call
                   </button>

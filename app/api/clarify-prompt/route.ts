@@ -1,4 +1,5 @@
 import OpenAI from "openai";
+import type { ChatCompletionMessageParam } from "openai/resources/chat/completions";
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY!,
@@ -43,7 +44,7 @@ export async function POST(req: Request) {
       temperature: 0.5,
       messages: [
         { role: "system", content: CHAT_SYSTEM },
-        ...formatted,
+        ...(formatted as ChatCompletionMessageParam[]),
       ],
     });
 
@@ -57,7 +58,7 @@ export async function POST(req: Request) {
   // Legacy: single userInput → return list of questions
   if (!userInput || typeof userInput !== "string") {
     return Response.json(
-      { error: "userInput or messages is required" },
+      { error: "userInput or messages is required" }, 
       { status: 400 }
     );
   }

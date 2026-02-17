@@ -14,6 +14,7 @@ const MAX_ATTEMPTS = 4;
 
 import { NextResponse } from "next/server";
 import { getCallByCallId } from "@/lib/db-helpers";
+import { extractGreetingFromCompiledPrompt } from "@/lib/prompt-compiler";
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -37,9 +38,9 @@ export async function POST(req: Request) {
       (typeof callRecord?.metadata?.agent_prompt === "string"
         ? callRecord.metadata.agent_prompt
         : null);
-    const greeting =
-      prompt?.trim().split(/\n/).find((l: string) => l.trim().length > 5)?.trim() ||
-      "Hello! I'm here. How can I help you today?";
+    const greeting = prompt
+      ? extractGreetingFromCompiledPrompt(prompt)
+      : "Hello! How can I help you today?";
     const toSpeak = greeting.length > 280 ? greeting.slice(0, 277) + "…" : greeting;
 
     await sleep(INITIAL_DELAY_MS);

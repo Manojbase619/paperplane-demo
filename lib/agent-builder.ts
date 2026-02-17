@@ -176,7 +176,7 @@ Return strict JSON only, no markdown, matching this shape:
 
   const jsonMatch = raw.match(/\{[\s\S]*\}/);
   const jsonStr = jsonMatch ? jsonMatch[0] : raw;
-  const parsed = JSON.parse(jsonStr) as unknown;
+  const parsed = JSON.parse(jsonStr) as Record<string, unknown>;
 
   const intro = typeof parsed.introduction === "string" ? parsed.introduction : "";
   const verification = typeof parsed.verification === "string" ? parsed.verification : "";

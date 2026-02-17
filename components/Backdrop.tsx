@@ -16,7 +16,7 @@ export function Backdrop({ children }: { children: React.ReactNode }) {
         }}
         style={{
           background:
-            "radial-gradient(880px 580px at -10% -10%, rgba(108,62,232,.08), transparent 65%), radial-gradient(820px 520px at 110% 0%, rgba(108,62,232,.06), transparent 65%), linear-gradient(180deg, var(--bg0), var(--surface-1))",
+            "radial-gradient(880px 580px at -10% -10%, rgba(99,102,241,.06), transparent 65%), radial-gradient(820px 520px at 110% 0%, rgba(99,102,241,.04), transparent 65%), linear-gradient(180deg, var(--bg0), var(--surface-1))",
         }}
       />
       <div className="relative">{children}</div>

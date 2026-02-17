@@ -1,6 +1,6 @@
 /**
  * Internal state for conversational prompt builder.
- * Extracted from chat by the AI; never shown as template variables to the user.
+ * Ultravox-style: primary objective → role/persona → rules → specific examples → generate.
  */
 export type PromptChatState = {
   role: string;
@@ -11,6 +11,14 @@ export type PromptChatState = {
   questions: string[];
   objectionHandling: string;
   closing: string;
+  /** Ultravox-style: agent display name (e.g. "Alex") */
+  agentName: string;
+  /** Compliance section label (e.g. "RBI Compliance Rules") */
+  complianceLabel: string;
+  /** Specific examples of rules user gave */
+  rulesExamples: string;
+  /** Information to collect during call (e.g. loan amount, course, university) */
+  informationToCollect: string;
 };
 
 export const EMPTY_STATE: PromptChatState = {
@@ -22,6 +30,10 @@ export const EMPTY_STATE: PromptChatState = {
   questions: [],
   objectionHandling: "",
   closing: "",
+  agentName: "Alex",
+  complianceLabel: "",
+  rulesExamples: "",
+  informationToCollect: "",
 };
 
 export function isStateSufficient(state: PromptChatState): boolean {

@@ -5,7 +5,7 @@
  */
 
 import type { AgentSpec } from "./agent-spec";
-import { compileSystemPrompt, type MemoryContext } from "./prompt-compiler";
+import { compileSystemPrompt, ensureNoRoleAcknowledgment, type MemoryContext } from "./prompt-compiler";
 import {
   getRuntimeCallSessionByCallId,
   getAgentById,
@@ -46,7 +46,8 @@ export async function getCompiledPromptForCall(
     }
   }
 
-  const systemPrompt = compileSystemPrompt(spec, memory);
+  const compiled = compileSystemPrompt(spec, memory);
+  const systemPrompt = ensureNoRoleAcknowledgment(compiled);
   return { systemPrompt, agentId: session.agent_id };
 }
 
